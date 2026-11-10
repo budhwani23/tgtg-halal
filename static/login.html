@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in · TGTG Halal Finder</title>
+<style>
+  :root { --bg:#f6f7f5; --panel:#fff; --text:#1d2420; --muted:#5f6b64; --line:#e1e5e2; --accent:#0f7a5a; --err:#c0392b; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#111513; --panel:#1a201d; --text:#e7ece9; --muted:#9aa6a0; --line:#2c3531; --accent:#3fbf8f; --err:#e5675a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; display:grid; place-items:center; padding:16px;
+         background:var(--bg); color:var(--text); font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:24px; width:min(380px,100%); }
+  h1 { font-size:18px; margin:0 0 4px; }
+  p { color:var(--muted); font-size:13px; margin:0 0 16px; }
+  label { display:block; font-size:12px; font-weight:600; margin-bottom:6px; }
+  input { width:100%; padding:10px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--text); font:inherit; margin-bottom:12px; }
+  .code { letter-spacing:.35em; text-align:center; font-size:20px; font-variant-numeric:tabular-nums; }
+  button { width:100%; padding:10px; border:0; border-radius:8px; background:var(--accent); color:#fff; font:inherit; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.6; cursor:default; }
+  .link { background:none; color:var(--accent); width:auto; padding:0; margin-top:12px; font-weight:500; }
+  .err { color:var(--err); font-size:12px; min-height:16px; margin:-4px 0 10px; }
+  .divider { display:flex; align-items:center; gap:10px; color:var(--muted); font-size:12px; margin:18px 0; }
+  .divider::before, .divider::after { content:""; flex:1; height:1px; background:var(--line); }
+  #google { display:flex; justify-content:center; min-height:44px; }
+  #google-err { text-align:center; margin:8px 0 0; }
+</style>
+</head>
+<body>
+<main class="card">
+  <h1>Sign in to TGTG Halal Finder</h1>
+  <p id="intro">Loading…</p>
+
+  <section id="google-box" hidden>
+    <div id="google"></div>
+    <div class="err" id="google-err" role="alert"></div>
+  </section>
+
+  <div class="divider" id="divider" hidden>or</div>
+
+  <form id="step-email" hidden>
+    <label for="email">Email</label>
+    <input id="email" type="email" autocomplete="email" required>
+    <div class="err" id="err-email" role="alert"></div>
+    <button id="send-btn">Email me a code</button>
+  </form>
+
+  <form id="step-code" hidden>
+    <p id="code-hint">Check your inbox for a 6-digit code.</p>
+    <label for="code">Code</label>
+    <input id="code" class="code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" required>
+    <div class="err" id="err-code" role="alert"></div>
+    <button>Sign in</button>
+    <button type="button" class="link" id="back">Use a different email</button>
+  </form>
+
+  <p id="none" hidden>Sign-in isn't set up on this server yet.</p>
+  <p style="margin:18px 0 0;font-size:11px;text-align:center"><a href="/privacy" style="color:var(--muted)">Privacy policy</a></p>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let codeApi = null;  // {start, verify} for the email form: our own code, or TGTG's PIN
+
+async function post(url, body) {
+  const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || `Something went wrong (${r.status}).`);
+  return data;
+}
+async function busy(form, fn) {
+  const btn = form.querySelector("button:not(.link)"), label = btn.textContent;
+  btn.disabled = true; btn.textContent = "Please wait…";
+  try { await fn(); } finally { btn.disabled = false; btn.textContent = label; }
+}
+
+function setupGoogle(clientId) {
+  $("google-box").hidden = false;
+  const s = document.createElement("script");
+  s.src = "https://accounts.google.com/gsi/client"; s.async = true;
+  s.onerror = () => { $("google-err").textContent = "Couldn't load Google sign-in. Check your connection or ad blocker."; };
+  s.onload = () => {
+    google.accounts.id.initialize({
+      client_id: clientId,
+      callback: async resp => {
+        $("google-err").textContent = "";
+        try { await post("/login/google", { credential: resp.credential }); location.replace("/"); }
+        catch (err) { $("google-err").textContent = err.message; }
+      },
+    });
+    const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+    google.accounts.id.renderButton($("google"), {
+      theme: dark ? "filled_black" : "outline", size: "large", shape: "pill",
+      text: "continue_with", width: Math.min(330, $("google").clientWidth || 330),
+    });
+  };
+  document.head.appendChild(s);
+}
+
+fetch("/login/config").then(r => r.json()).then(cfg => {
+  const m = cfg.methods || [];
+  if (m.includes("google") && cfg.google_client_id) setupGoogle(cfg.google_client_id);
+  if (m.includes("email")) codeApi = { start: "/login/email/start", verify: "/login/email/verify", what: "code" };
+  else if (m.includes("tgtg")) codeApi = { start: "/login/start", verify: "/login/verify", what: "Too Good To Go PIN" };
+  if (codeApi) {
+    $("step-email").hidden = false;
+    if (codeApi.what !== "code") $("send-btn").textContent = "Email me a TGTG PIN";
+  }
+  $("divider").hidden = !(codeApi && !$("google-box").hidden);
+  $("intro").textContent = !m.length ? "" :
+    !$("google-box").hidden && codeApi ? "Continue with Google, or get a sign-in code by email." :
+    codeApi ? "We'll email you a sign-in code. No password needed." : "Continue with your Google account.";
+  $("none").hidden = m.length > 0;
+});
+
+$("step-email").addEventListener("submit", e => {
+  e.preventDefault();
+  busy(e.target, async () => {
+    $("err-email").textContent = "";
+    try {
+      await post(codeApi.start, { email: $("email").value });
+      $("code-hint").textContent = `We emailed a ${codeApi.what} to ${$("email").value.trim()}. It can take a minute; check spam too.`;
+      $("step-email").hidden = true; $("step-code").hidden = false; $("code").focus();
+    } catch (err) { $("err-email").textContent = err.message; }
+  });
+});
+$("step-code").addEventListener("submit", e => {
+  e.preventDefault();
+  busy(e.target, async () => {
+    $("err-code").textContent = "";
+    const body = codeApi.what === "code" ? { email: $("email").value, code: $("code").value }
+                                         : { email: $("email").value, pin: $("code").value };
+    try { await post(codeApi.verify, body); location.replace("/"); }
+    catch (err) { $("err-code").textContent = err.message; }
+  });
+});
+$("back").addEventListener("click", () => { $("step-code").hidden = true; $("step-email").hidden = false; $("code").value = ""; $("email").focus(); });
+</script>
+</body>
+</html>

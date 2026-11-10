@@ -1,0 +1,9 @@
+.venv
+.env
+.git
+.pytest_cache
+.claude
+__pycache__
+tests
+data/*
+!data/tgtg_halal.sqlite3

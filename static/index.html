@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TGTG Halal Finder</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root {
+    --bg: #f6f7f5; --panel: #ffffff; --text: #1d2420; --muted: #5f6b64; --line: #e1e5e2;
+    --accent: #0f7a5a; --likely: #138a5e; --possible: #c98a12; --unknown: #8a948e; --unlikely: #c0392b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111513; --panel: #1a201d; --text: #e7ece9; --muted: #9aa6a0; --line: #2c3531;
+            --accent: #3fbf8f; --likely: #3fbf8f; --possible: #e0a83a; --unknown: #7d8883; --unlikely: #e5675a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+  .app { display: grid; grid-template-columns: 420px 1fr; height: 100vh; }
+  aside { display: flex; flex-direction: column; border-right: 1px solid var(--line); background: var(--panel); min-height: 0; }
+  header { padding: 16px; border-bottom: 1px solid var(--line); }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 12px; margin: 0 0 12px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .chip { border: 1px solid var(--line); background: transparent; color: var(--text); padding: 6px 12px; border-radius: 999px; cursor: pointer; font: inherit; }
+  .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  input[type=search], select { flex: 1; min-width: 0; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; }
+  label.toggle { display: flex; gap: 6px; align-items: center; white-space: nowrap; color: var(--muted); }
+  .count { padding: 8px 16px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); }
+  #list { overflow-y: auto; flex: 1; }
+  .card { padding: 12px 16px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .card:hover, .card.active { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+  .top { display: flex; justify-content: space-between; gap: 8px; }
+  .name { font-weight: 600; }
+  .price { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .price s { color: var(--muted); font-size: 12px; margin-left: 4px; }
+  .meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; color: #fff; margin-top: 6px; text-transform: uppercase; letter-spacing: .03em; }
+  .lvl-likely { background: var(--likely); } .lvl-possible { background: var(--possible); }
+  .lvl-unknown, .lvl-unchecked { background: var(--unknown); } .lvl-unlikely { background: var(--unlikely); }
+  details { margin-top: 6px; font-size: 12px; color: var(--muted); }
+  details li { margin: 3px 0; }
+  a { color: var(--accent); }
+  .pts { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .note { padding: 10px 16px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--line); }
+  #map { height: 100%; }
+  .account { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 10px; margin-bottom: 12px;
+             border: 1px solid var(--line); border-radius: 8px; font-size: 12px; color: var(--muted); }
+  .account b { color: var(--text); font-weight: 600; }
+  .linkbtn { background: none; border: 0; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; padding: 0; }
+  dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); padding: 20px; width: min(360px, calc(100vw - 32px)); }
+  dialog::backdrop { background: rgb(0 0 0 / .45); }
+  dialog h2 { font-size: 16px; margin: 0 0 4px; }
+  dialog p { color: var(--muted); font-size: 12px; margin: 0 0 14px; }
+  dialog input { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; margin-bottom: 10px; }
+  .pin { letter-spacing: .3em; font-variant-numeric: tabular-nums; text-align: center; font-size: 18px !important; }
+  .btns { display: flex; gap: 8px; justify-content: flex-end; }
+  .btn { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; cursor: pointer; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .btn:disabled { opacity: .6; cursor: default; }
+  .err { color: var(--unlikely); font-size: 12px; min-height: 16px; margin: -4px 0 10px; }
+  .empty { padding: 32px 16px; color: var(--muted); text-align: center; }
+  @media (max-width: 760px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: 40vh 1fr; height: 100dvh; }
+    #map { grid-row: 1; } aside { grid-row: 2; border-right: 0; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <header>
+      <h1>TGTG Halal Finder</h1>
+      <p class="sub">Too Good To Go surprise bags, with halal evidence from public listings and reviews.</p>
+      <div class="account" id="account">Checking login…</div>
+      <div class="account" id="refresh-bar">
+        <span id="refresh-msg">Halal data from Google Maps</span>
+        <button class="linkbtn" id="refresh">Refresh halal data</button>
+      </div>
+      <div class="chips" role="group" aria-label="Halal filter">
+        <button class="chip" data-halal="any" aria-pressed="false">All</button>
+        <button class="chip" data-halal="likely" aria-pressed="true">Halal likely</button>
+        <button class="chip" data-halal="possible" aria-pressed="false">Likely + possible</button>
+        <button class="chip" data-halal="unlikely" aria-pressed="false">Not halal</button>
+      </div>
+      <div class="row" style="margin-bottom:8px">
+        <input id="q" type="search" placeholder="Search store or address">
+        <select id="category"><option value="">All categories</option></select>
+      </div>
+      <label class="toggle"><input id="stock" type="checkbox"> In stock only</label>
+    </header>
+    <div class="count" id="count">Loading…</div>
+    <div id="list"></div>
+    <div class="note">The halal level is an estimate built from text and reviews, not a certification. Always confirm with the store, especially for mixed bags from bakeries and supermarkets.</div>
+  </aside>
+  <div id="map"></div>
+</div>
+
+<dialog id="login">
+  <form id="step-email">
+    <h2>Log in to Too Good To Go</h2>
+    <p>Too Good To Go will email you a PIN. The login stays on this computer.</p>
+    <input id="email" type="email" placeholder="you@example.com" autocomplete="email" required>
+    <div class="err" id="err-email"></div>
+    <div class="btns"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Send PIN</button></div>
+  </form>
+  <form id="step-pin" hidden>
+    <h2>Enter your PIN</h2>
+    <p id="pin-hint">Check your inbox for the PIN from Too Good To Go.</p>
+    <input id="pin" class="pin" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="••••••" required>
+    <div class="err" id="err-pin"></div>
+    <div class="btns"><button type="button" class="btn" id="back">Back</button><button class="btn primary">Log in</button></div>
+  </form>
+</dialog>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const state = { halal: "likely", q: "", category: "", inStock: false };
+const colors = () => {
+  const s = getComputedStyle(document.documentElement);
+  return { likely: s.getPropertyValue("--likely"), possible: s.getPropertyValue("--possible"),
+           unknown: s.getPropertyValue("--unknown"), unchecked: s.getPropertyValue("--unknown"),
+           unlikely: s.getPropertyValue("--unlikely") };
+};
+const map = L.map("map").setView([50.1109, 8.6821], 13);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19, attribution: "&copy; OpenStreetMap contributors" }).addTo(map);
+const layer = L.layerGroup().addTo(map);
+const markers = {};
+let firstFit = true;
+
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const money = (v, cur) => v == null ? "" : new Intl.NumberFormat(undefined, { style: "currency", currency: cur || "EUR" }).format(v);
+const time = iso => iso ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+const label = { likely: "Halal likely", possible: "Possibly halal", unknown: "No evidence", unchecked: "Not checked", unlikely: "Likely not halal" };
+
+async function load() {
+  const p = new URLSearchParams({ halal: state.halal, in_stock: state.inStock });
+  if (state.q) p.set("q", state.q);
+  if (state.category) p.set("category", state.category);
+  const r = await fetch(`/api/listings?${p}`);
+  if (r.status === 401) { location.replace("/login"); return; }  // session expired
+  render((await r.json()).items);
+}
+
+function render(items) {
+  document.getElementById("count").textContent = `${items.length} bag${items.length === 1 ? "" : "s"}`;
+  const list = document.getElementById("list");
+  layer.clearLayers();
+  if (!items.length) {
+    list.innerHTML = `<div class="empty">No bags match these filters.</div>`;
+    return;
+  }
+  const c = colors();
+  list.innerHTML = items.map(it => `
+    <div class="card" data-id="${esc(it.item_id)}">
+      <div class="top">
+        <div class="name">${esc(it.store_name)}${it.branch ? ` · ${esc(it.branch)}` : ""}</div>
+        <div class="price">${money(it.price, it.currency)}<s>${money(it.value, it.currency)}</s></div>
+      </div>
+      <div class="meta">${esc(it.address)}</div>
+      <div class="meta">${esc(it.category || "")} · ${it.items_available ?? 0} left · pickup ${time(it.pickup_start)}–${time(it.pickup_end)}</div>
+      <span class="badge lvl-${esc(it.halal_level)}">${label[it.halal_level] || it.halal_level}${it.halal_score != null ? ` · ${it.halal_score}` : ""}</span>
+      ${it.halal_evidence.length ? `<details><summary>Why?</summary><ul>${it.halal_evidence.map(e =>
+        `<li><span class="pts">${e.points > 0 ? "+" : ""}${e.points}</span> ${esc(e.detail)}</li>`).join("")}</ul>
+        ${it.maps_uri ? `<a href="${esc(it.maps_uri)}" target="_blank" rel="noopener">Open in Google Maps</a>` : ""}</details>` : ""}
+    </div>`).join("");
+
+  const bounds = [];
+  for (const it of items) {
+    if (it.lat == null) continue;
+    const m = L.circleMarker([it.lat, it.lng], { radius: 8, weight: 2, color: "#fff",
+      fillColor: c[it.halal_level] || c.unknown, fillOpacity: 0.95 })
+      .bindPopup(`<b>${esc(it.store_name)}</b><br>${label[it.halal_level]}<br>${money(it.price, it.currency)} · ${it.items_available ?? 0} left`)
+      .addTo(layer);
+    m.on("click", () => highlight(it.item_id));
+    markers[it.item_id] = m;
+    bounds.push([it.lat, it.lng]);
+  }
+  if (bounds.length && firstFit) { map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 }); firstFit = false; }
+
+  list.querySelectorAll(".card").forEach(el => el.addEventListener("click", e => {
+    if (e.target.closest("details")) return;
+    const m = markers[el.dataset.id];
+    if (m) { map.setView(m.getLatLng(), 16); m.openPopup(); }
+    highlight(el.dataset.id);
+  }));
+}
+
+function highlight(id) {
+  document.querySelectorAll(".card").forEach(el => el.classList.toggle("active", el.dataset.id === id));
+  document.querySelector(`.card[data-id="${CSS.escape(id)}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+document.querySelectorAll(".chip").forEach(b => b.addEventListener("click", () => {
+  document.querySelectorAll(".chip").forEach(x => x.setAttribute("aria-pressed", x === b));
+  state.halal = b.dataset.halal; load();
+}));
+let t;
+document.getElementById("q").addEventListener("input", e => { clearTimeout(t); t = setTimeout(() => { state.q = e.target.value; load(); }, 200); });
+document.getElementById("category").addEventListener("change", e => { state.category = e.target.value; load(); });
+document.getElementById("stock").addEventListener("change", e => { state.inStock = e.target.checked; load(); });
+
+// ---- Login ----
+const dlg = document.getElementById("login");
+const stepEmail = document.getElementById("step-email"), stepPin = document.getElementById("step-pin");
+const post = async (url, body) => {
+  const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}) });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || `Request failed (${r.status})`);
+  return data;
+};
+function renderAccount(s) {
+  const el = document.getElementById("account");
+  if (s.mode === "user") {  // signed in with a TGTG account on the hosted site
+    el.innerHTML = `<span>Signed in as <b>${esc(s.email || "")}</b></span><button class="linkbtn" id="signout">Sign out</button>`;
+    el.querySelector("#signout").addEventListener("click", async () => {
+      await fetch("/logout", { method: "POST" }); location.replace("/login");
+    });
+    return;
+  }
+  el.innerHTML = s.logged_in
+    ? `<span>TGTG: <b>${esc(s.email || "logged in")}</b></span><button class="linkbtn" id="logout">Log out</button>`
+    : `<span>Not logged in to TGTG</span><button class="linkbtn" id="open-login">Log in</button>`;
+  el.querySelector("#logout")?.addEventListener("click", async () => {
+    if (confirm("Log out and forget the saved TGTG login on this computer?")) renderAccount(await post("/api/auth/logout"));
+  });
+  el.querySelector("#open-login")?.addEventListener("click", () => {
+    stepEmail.hidden = false; stepPin.hidden = true; dlg.showModal(); document.getElementById("email").focus();
+  });
+}
+async function busy(form, fn) {
+  const btn = form.querySelector(".primary"), label = btn.textContent;
+  btn.disabled = true; btn.textContent = "Please wait…";
+  try { await fn(); } finally { btn.disabled = false; btn.textContent = label; }
+}
+stepEmail.addEventListener("submit", e => {
+  e.preventDefault();
+  const email = document.getElementById("email").value.trim();
+  busy(stepEmail, async () => {
+    document.getElementById("err-email").textContent = "";
+    try {
+      await post("/api/auth/start", { email });
+      document.getElementById("pin-hint").textContent = `We sent a PIN to ${email}. It can take a minute to arrive.`;
+      stepEmail.hidden = true; stepPin.hidden = false; document.getElementById("pin").focus();
+    } catch (err) { document.getElementById("err-email").textContent = err.message; }
+  });
+});
+stepPin.addEventListener("submit", e => {
+  e.preventDefault();
+  busy(stepPin, async () => {
+    document.getElementById("err-pin").textContent = "";
+    try {
+      const s = await post("/api/auth/pin", { email: document.getElementById("email").value.trim(), pin: document.getElementById("pin").value });
+      dlg.close(); document.getElementById("pin").value = ""; renderAccount(s);
+    } catch (err) { document.getElementById("err-pin").textContent = err.message; }
+  });
+});
+document.getElementById("back").addEventListener("click", () => { stepPin.hidden = true; stepEmail.hidden = false; });
+dlg.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", () => dlg.close()));
+fetch("/api/auth/status").then(r => r.json()).then(renderAccount);
+
+// ---- Refresh halal data (runs the scraper + scoring on the server) ----
+const refreshBtn = document.getElementById("refresh"), refreshMsg = document.getElementById("refresh-msg");
+let wasRunning = false;
+function showJob(j) {
+  if (j.enabled === false) {
+    refreshBtn.hidden = true;
+    refreshMsg.textContent = j.last_checked
+      ? `Halal data checked ${new Date(j.last_checked * 1000).toLocaleDateString()}` : "Halal data not checked yet";
+    return;
+  }
+  refreshBtn.hidden = j.running;
+  if (j.running) refreshMsg.textContent = `Working… ${j.log[j.log.length - 1] || ""}`;
+  else if (j.error) refreshMsg.textContent = `Refresh failed: ${j.error}`;
+  else if (j.finished_at) refreshMsg.textContent = `Updated ${new Date(j.finished_at * 1000).toLocaleTimeString()}`;
+  if (wasRunning && !j.running) load();
+  wasRunning = j.running;
+  if (j.running) setTimeout(pollJob, 3000);
+}
+const pollJob = () => fetch("/api/refresh").then(r => r.json()).then(showJob);
+refreshBtn.addEventListener("click", async () => {
+  if (!confirm("Scrape Google Maps for every store and re-score them? This takes about 10–20 minutes and needs Docker running.")) return;
+  try { showJob(await post("/api/refresh")); } catch (err) { refreshMsg.textContent = err.message; }
+});
+pollJob();
+
+fetch("/api/stats").then(r => r.json()).then(s => {
+  const sel = document.getElementById("category");
+  s.categories.forEach(c => sel.insertAdjacentHTML("beforeend", `<option value="${esc(c)}">${esc(c)}</option>`));
+});
+load();
+</script>
+</body>
+</html>

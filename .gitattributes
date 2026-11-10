@@ -1,0 +1,4 @@
+* text=auto
+# Run inside Linux containers; CRLF line endings break them.
+*.sh text eol=lf
+Dockerfile text eol=lf
