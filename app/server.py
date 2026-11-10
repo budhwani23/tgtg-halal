@@ -51,7 +51,7 @@ def login_page(request: Request):
         return RedirectResponse("/", status_code=303)
     if user_auth.read_session(request.cookies.get(user_auth.COOKIE)):
         return RedirectResponse("/", status_code=303)
-    return FileResponse(STATIC / "login.html")
+    return FileResponse(STATIC / "login.html", headers=NO_CACHE)
 
 
 def _require_method(name: str):
@@ -166,9 +166,12 @@ def privacy():
     return FileResponse(STATIC / "privacy.html")
 
 
+NO_CACHE = {"Cache-Control": "no-cache"}  # always check for a newer page after a deploy
+
+
 @app.get("/")
 def index():
-    return FileResponse(STATIC / "index.html")
+    return FileResponse(STATIC / "index.html", headers=NO_CACHE)
 
 
 @app.get("/api/listings")

@@ -61,9 +61,38 @@
   .btn:disabled { opacity: .6; cursor: default; }
   .err { color: var(--unlikely); font-size: 12px; min-height: 16px; margin: -4px 0 10px; }
   .empty { padding: 32px 16px; color: var(--muted); text-align: center; }
+  .list-note { display: none; }
+  #view-toggle { display: none; }
+
+  /* Phones: one view at a time (list or map), switched with a floating button. */
   @media (max-width: 760px) {
-    .app { grid-template-columns: 1fr; grid-template-rows: 40vh 1fr; height: 100dvh; }
-    #map { grid-row: 1; } aside { grid-row: 2; border-right: 0; }
+    .app { display: block; height: 100dvh; }
+    aside { height: 100dvh; border-right: 0; }
+    #map { position: fixed; inset: 0; z-index: 1; visibility: hidden; }
+    body.show-map #map { visibility: visible; }
+    body.show-map aside { visibility: hidden; }
+
+    header { padding: 12px 16px 10px; }
+    h1 { font-size: 17px; margin-bottom: 8px; }
+    .sub { display: none; }
+    .account { padding: 6px 10px; margin-bottom: 6px; }
+    .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 8px -16px; padding: 0 16px; }
+    .chips::-webkit-scrollbar { display: none; }
+    .chip { flex: none; padding: 7px 12px; }
+    /* 16px stops iOS zooming into inputs on focus */
+    input[type=search], select { font-size: 16px; padding: 8px 10px; }
+    .card { padding: 12px 16px; }
+    #list { padding-bottom: 88px; }           /* room above the floating button */
+    .note { display: none; }
+    .list-note { display: block; padding: 14px 16px; font-size: 11px; color: var(--muted); }
+
+    #view-toggle {
+      display: flex; align-items: center; gap: 8px; position: fixed; z-index: 1100;
+      left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom));
+      padding: 12px 20px; border: 0; border-radius: 999px; background: var(--text); color: var(--bg);
+      font: inherit; font-weight: 600; box-shadow: 0 6px 20px rgb(0 0 0 / .3); cursor: pointer;
+    }
+    .leaflet-bottom { bottom: calc(64px + env(safe-area-inset-bottom)); }
   }
 </style>
 </head>
@@ -96,6 +125,10 @@
   </aside>
   <div id="map"></div>
 </div>
+<button id="view-toggle" type="button" aria-label="Show map">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path id="view-icon" d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2zm0 0v14m6-12v14"/></svg>
+  <span id="view-label">Map</span>
+</button>
 
 <dialog id="login">
   <form id="step-email">
@@ -165,7 +198,7 @@ function render(items) {
       ${it.halal_evidence.length ? `<details><summary>Why?</summary><ul>${it.halal_evidence.map(e =>
         `<li><span class="pts">${e.points > 0 ? "+" : ""}${e.points}</span> ${esc(e.detail)}</li>`).join("")}</ul>
         ${it.maps_uri ? `<a href="${esc(it.maps_uri)}" target="_blank" rel="noopener">Open in Google Maps</a>` : ""}</details>` : ""}
-    </div>`).join("");
+    </div>`).join("") + `<div class="list-note">${document.querySelector(".note").textContent}</div>`;
 
   const bounds = [];
   for (const it of items) {
@@ -183,10 +216,28 @@ function render(items) {
   list.querySelectorAll(".card").forEach(el => el.addEventListener("click", e => {
     if (e.target.closest("details")) return;
     const m = markers[el.dataset.id];
-    if (m) { map.setView(m.getLatLng(), 16); m.openPopup(); }
     highlight(el.dataset.id);
+    if (!m) return;
+    if (isPhone()) showMap(true);   // on phones the map is its own view
+    map.setView(m.getLatLng(), 16); m.openPopup();
   }));
 }
+
+// ---- Phones: switch between the list and the map ----
+const phoneQuery = matchMedia("(max-width: 760px)");
+const isPhone = () => phoneQuery.matches;
+function showMap(on) {
+  document.body.classList.toggle("show-map", on);
+  document.getElementById("view-label").textContent = on ? "List" : "Map";
+  document.getElementById("view-toggle").setAttribute("aria-label", on ? "Show list" : "Show map");
+  document.getElementById("view-icon").setAttribute("d", on
+    ? "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"           // list icon
+    : "M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2zm0 0v14m6-12v14");       // map icon
+  if (on) map.invalidateSize();
+}
+document.getElementById("view-toggle").addEventListener("click", () =>
+  showMap(!document.body.classList.contains("show-map")));
+phoneQuery.addEventListener("change", () => { showMap(false); map.invalidateSize(); });
 
 function highlight(id) {
   document.querySelectorAll(".card").forEach(el => el.classList.toggle("active", el.dataset.id === id));
